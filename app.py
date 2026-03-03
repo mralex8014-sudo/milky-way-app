@@ -4,64 +4,45 @@ from datetime import datetime
 import hashlib
 
 # 1. Настройка страницы
-st.set_page_config(page_title="MilkyGram", page_icon="🌌", layout="centered")
+st.set_page_config(page_title="MilkyGram", page_icon="🌌", layout="wide")
 
-# --- ИНИЦИАЛИЗАЦИЯ SESSION STATE ---
+# --- ИНИЦИАЛИЗАЦИЯ ---
 for key, val in {
     'logged_in': False, 'username': "", 'page': "feed", 
-    'viewing_profile': None, 'theme': "Dark"
+    'viewing_profile': None, 'theme': "Dark", 'viewing_nebula': None
 }.items():
     if key not in st.session_state: st.session_state[key] = val
 
 DB_URL = "https://milky-way-8ea60-default-rtdb.firebaseio.com/"
 DEFAULT_AVA = "https://cdn-icons-png.flaticon.com/512/2592/2592188.png"
 
-# --- АДАПТИВНАЯ ЦВЕТОВАЯ СХЕМА ---
+# --- ЦВЕТОВАЯ СХЕМА (ВК-стайл) ---
 if st.session_state.theme == "Dark":
-    bg, txt, brd, inp, accent = "#050505", "#E0E0E0", "#1B1B3A", "#0F0F1B", "#3D3D6B"
+    bg, txt, brd, inp, accent = "#0A0A0A", "#E1E1E1", "#222222", "#161616", "#2D2D4D"
 else:
-    # Светлая тема: черный текст на белом фоне, серые границы
-    bg, txt, brd, inp, accent = "#FFFFFF", "#1A1A1A", "#DBDBDB", "#F8F9FA", "#E0E0FF"
+    bg, txt, brd, inp, accent = "#EDEEF0", "#000000", "#DCE1E6", "#FFFFFF", "#E1E9F1"
 
 st.markdown(f"""
     <style>
-    html, body, [class*="css"] {{ font-size: 14px !important; color: {txt} !important; }}
+    html, body, [class*="css"] {{ font-size: 13px !important; color: {txt} !important; }}
     .stApp {{ background-color: {bg}; color: {txt}; }}
     
-    /* Сайдбар */
-    [data-testid="stSidebar"] {{ background-color: {inp}; border-right: 1px solid {brd}; }}
-    [data-testid="stSidebar"] .stText, [data-testid="stSidebar"] p, [data-testid="stSidebar"] h3 {{ color: {txt} !important; }}
-    
-    /* Заголовки и текст */
-    h1, h2, h3, p, span, label, .stMarkdown {{ color: {txt} !important; }}
-    
-    /* Кнопки */
-    .stButton>button {{ 
-        border-radius: 10px; padding: 2px 10px; font-size: 12px !important; 
-        background-color: {accent}; color: {txt if st.session_state.theme == 'Light' else 'white'} !important;
-        border: 1px solid {brd};
-    }}
-    .stButton>button:hover {{ border-color: #6D6D9D; color: #6D6D9D !important; }}
-    
-    /* Карточки постов и блоков */
+    /* Контейнеры (Белые блоки как в ВК) */
     div[data-testid="stVerticalBlock"] > div[style*="border: 1px solid"] {{
         background-color: {inp} !important; border: 1px solid {brd} !important; 
-        border-radius: 12px; padding: 12px !important;
+        border-radius: 8px; padding: 15px !important; margin-bottom: 10px;
     }}
     
-    /* Поля ввода */
-    .stTextInput>div>div>input, .stTextArea>div>div>textarea {{
-        background-color: {bg} !important; color: {txt} !important; border: 1px solid {brd} !important;
+    /* Сайдбар */
+    [data-testid="stSidebar"] {{ background-color: {bg}; border-right: none; }}
+    .stButton>button {{ 
+        border-radius: 6px; padding: 4px; font-size: 13px !important; 
+        background-color: {accent}; color: {txt} !important; border: none; text-align: left;
     }}
     
-    /* Комментарии */
-    .comment-box {{ 
-        font-size: 12px; background: {bg}; padding: 6px; border-radius: 8px; 
-        margin-top: 4px; border: 1px solid {brd}; color: {txt};
-    }}
-    
-    /* Чат */
-    .msg-cloud {{ padding: 6px 12px; border-radius: 12px; margin-bottom: 4px; display: inline-block; }}
+    /* Посты */
+    .post-header {{ font-weight: bold; color: #4A76A8; cursor: pointer; }}
+    .comment-box {{ background: {bg}; padding: 8px; border-radius: 4px; margin-top: 5px; border: 1px solid {brd}; }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -70,120 +51,154 @@ def hash_pass(p): return hashlib.sha256(str.encode(p)).hexdigest()
 # --- ЛОГИКА ВХОДА ---
 if not st.session_state.logged_in:
     st.title("🌌 MilkyGram")
-    with st.container(border=True):
-        u = st.text_input("Позывной", key="log_u")
-        p = st.text_input("Код", type="password", key="log_p")
-        if st.button("Войти"):
-            res = requests.get(f"{DB_URL}users/{u}.json").json()
-            if res and res.get('password') == hash_pass(p):
-                st.session_state.logged_in, st.session_state.username = True, u
-                st.rerun()
-            else: st.error("Ошибка доступа")
+    c1, _ = st.columns([1, 2])
+    with c1:
+        with st.container(border=True):
+            u = st.text_input("Позывной")
+            p = st.text_input("Код", type="password")
+            if st.button("Войти в систему"):
+                res = requests.get(f"{DB_URL}users/{u}.json").json()
+                if res and res.get('password') == hash_pass(p):
+                    st.session_state.logged_in, st.session_state.username = True, u
+                    st.rerun()
     st.stop()
 
 # --- ЗАГРУЗКА ДАННЫХ ---
 all_users = requests.get(f"{DB_URL}users.json").json() or {}
+nebulas = requests.get(f"{DB_URL}nebulas.json").json() or {}
 my_data = all_users.get(st.session_state.username, {})
-my_satellites = my_data.get('satellites', []) or []
 
-# --- ФУНКЦИИ ---
-def show_user_profile(name):
-    u = all_users.get(name)
-    if not u: return
-    st.subheader(f"Профиль @{name}")
-    c1, c2 = st.columns([1, 3])
-    c1.image(u.get('avatar', DEFAULT_AVA), width=80)
-    with c2:
-        st.write(f"*{u.get('bio', 'Исследователь')}*")
-        if name != st.session_state.username:
-            if name in my_satellites:
-                if st.button("💥 Разорвать связь"):
-                    my_satellites.remove(name); requests.patch(f"{DB_URL}users/{st.session_state.username}.json", json={"satellites": my_satellites}); st.rerun()
-            else:
-                if st.button("🔗 Установить связь"):
-                    my_satellites.append(name); requests.patch(f"{DB_URL}users/{st.session_state.username}.json", json={"satellites": my_satellites}); st.rerun()
-
-# --- МЕНЮ ---
+# --- МЕНЮ (СЛЕВА КАК В ВК) ---
 with st.sidebar:
-    st.write(f"### @{st.session_state.username}")
-    t_toggle = st.toggle("🌙 Темный режим", value=(st.session_state.theme == "Dark"))
-    if t_toggle != (st.session_state.theme == "Dark"):
-        st.session_state.theme = "Dark" if t_toggle else "Light"
-        st.rerun()
-    
+    st.markdown(f"### @{st.session_state.username}")
+    if st.button("🏠 Моя страница"): st.session_state.page, st.session_state.viewing_profile = "my_profile", None; st.rerun()
+    if st.button("📡 Горизонт (Лента)"): st.session_state.page = "feed"; st.rerun()
+    if st.button("📟 Радио (Мессенджер)"): st.session_state.page = "dm"; st.rerun()
+    if st.button("🔍 Поиск пилотов"): st.session_state.page = "search"; st.rerun()
+    if st.button("☁️ Туманности (Группы)"): st.session_state.page = "nebulas"; st.rerun()
     st.write("---")
-    btns = {"📡 Лента": "feed", "🔍 Поиск": "search", "📟 Радио": "dm", "🌌 Связи": "galaxy", "👨‍🚀 Профиль": "my_profile"}
-    for lab, pg in btns.items():
-        if st.button(lab): st.session_state.page, st.session_state.viewing_profile = pg, None; st.rerun()
+    if st.toggle("🌙 Тема", value=(st.session_state.theme == "Dark")): st.session_state.theme = "Dark"
+    else: st.session_state.theme = "Light"
     if st.button("🚪 Выход"): st.session_state.logged_in = False; st.rerun()
 
-# --- КОНТЕНТ ---
-if st.session_state.viewing_profile:
-    show_user_profile(st.session_state.viewing_profile)
-    if st.button("← Назад"): st.session_state.viewing_profile = None; st.rerun()
+# --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
+def render_post(pid, p, is_nebula=False):
+    with st.container(border=True):
+        author_name = p.get('author')
+        col_a, col_t = st.columns([4, 1])
+        if col_a.button(f"👤 {author_name}", key=f"p_btn_{pid}"):
+            if is_nebula: st.session_state.viewing_nebula = author_name
+            else: st.session_state.viewing_profile = author_name
+            st.rerun()
+        col_t.caption(p.get('time'))
+        if p.get('img'): st.image(p['img'], use_container_width=True)
+        st.write(p.get('text', ''))
+        
+        l1, l2 = st.columns([1, 5])
+        if l1.button(f"✨ {p.get('likes', 0)}", key=f"l_{pid}"):
+            path = "nebulas" if is_nebula else "posts"
+            requests.patch(f"{DB_URL}{path}/{pid}.json", json={"likes": p.get('likes', 0) + 1}); st.rerun()
 
-elif st.session_state.page == "feed":
-    st.title("Лента")
-    with st.expander("📝 Создать пост"):
-        img = st.text_input("URL фото")
-        txt_p = st.text_area("Текст", height=70)
-        if st.button("Отправить"):
-            requests.post(f"{DB_URL}posts.json", json={"author": st.session_state.username, "img": img, "text": txt_p, "time": datetime.now().strftime("%H:%M"), "likes": 0})
+# --- СТРАНИЦЫ ---
+
+# 1. ЛЕНТА
+if st.session_state.page == "feed":
+    st.title("Новости")
+    all_posts = requests.get(f"{DB_URL}posts.json").json() or {}
+    for pid, p in reversed(list(all_posts.items())):
+        render_post(pid, p)
+
+# 2. ПРОФИЛЬ (МОЙ ИЛИ ЧУЖОЙ)
+elif st.session_state.page in ["my_profile", "view_profile"] or st.session_state.viewing_profile:
+    target = st.session_state.viewing_profile or st.session_state.username
+    user = all_users.get(target, {})
+    
+    st.title(f"@{target}")
+    with st.container(border=True):
+        c1, c2 = st.columns([1, 3])
+        c1.image(user.get('avatar', DEFAULT_AVA), width=150)
+        with c2:
+            st.subheader(target)
+            st.write(f"ℹ️ {user.get('bio', 'Нет описания')}")
+            if target != st.session_state.username:
+                if st.button("📟 Написать сообщение"): 
+                    st.session_state.page = "dm"; st.session_state.chat_with = target; st.rerun()
+            else:
+                if st.button("⚙️ Редактировать"): st.session_state.page = "settings"; st.rerun()
+
+    st.write("### 📝 Стена")
+    if target == st.session_state.username:
+        with st.expander("Что нового?"):
+            img = st.text_input("URL фото")
+            txt_p = st.text_area("Текст")
+            if st.button("Опубликовать"):
+                requests.post(f"{DB_URL}posts.json", json={"author": target, "img": img, "text": txt_p, "time": datetime.now().strftime("%H:%M"), "likes": 0})
+                st.rerun()
+    
+    # Фильтруем посты только этого пользователя
+    all_posts = requests.get(f"{DB_URL}posts.json").json() or {}
+    for pid, p in reversed(list(all_posts.items())):
+        if p.get('author') == target:
+            render_post(pid, p)
+
+# 3. ТУМАННОСТИ (СООБЩЕСТВА)
+elif st.session_state.page == "nebulas":
+    st.title("☁️ Туманности")
+    with st.expander("✨ Создать Туманность"):
+        n_name = st.text_input("Название")
+        n_bio = st.text_input("Описание")
+        if st.button("Создать"):
+            requests.put(f"{DB_URL}nebulas/{n_name}.json", json={"creator": st.session_state.username, "bio": n_bio, "avatar": DEFAULT_AVA})
             st.rerun()
     
-    posts = requests.get(f"{DB_URL}posts.json").json() or {}
-    for pid, p in reversed(list(posts.items())):
+    for name, data in nebulas.items():
         with st.container(border=True):
-            h1, h2 = st.columns([3, 1])
-            if h1.button(f"@{p.get('author')}", key=f"u_{pid}"):
-                st.session_state.viewing_profile = p.get('author'); st.rerun()
-            h2.caption(p.get('time'))
-            if p.get('img'): st.image(p['img'], width=350)
-            st.write(p.get('text', ''))
-            
-            l1, l2 = st.columns([1, 5])
-            if l1.button(f"✨ {p.get('likes', 0)}", key=f"l_{pid}"):
-                requests.patch(f"{DB_URL}posts/{pid}.json", json={"likes": p.get('likes', 0) + 1}); st.rerun()
-            
-            with st.expander("💬 Обсуждение"):
-                coms = p.get('comments', {})
-                for c in coms.values():
-                    st.markdown(f"<div class='comment-box'><b>{c['user']}</b>: {c['txt']}</div>", unsafe_allow_html=True)
-                c_in = st.text_input("...", key=f"in_{pid}", label_visibility="collapsed")
-                if st.button("OK", key=f"s_{pid}"):
-                    requests.post(f"{DB_URL}posts/{pid}/comments.json", json={"user": st.session_state.username, "txt": c_in}); st.rerun()
+            st.write(f"### {name}")
+            st.caption(data.get('bio'))
+            if st.button(f"Войти в {name}", key=f"neb_{name}"):
+                st.session_state.page = "nebula_view"; st.session_state.viewing_nebula = name; st.rerun()
 
+elif st.session_state.page == "nebula_view":
+    neb_name = st.session_state.viewing_nebula
+    neb_data = nebulas.get(neb_name, {})
+    st.title(f"☁️ {neb_name}")
+    st.caption(neb_data.get('bio'))
+    
+    if neb_data.get('creator') == st.session_state.username:
+        with st.expander("📢 Опубликовать от имени группы"):
+            txt_n = st.text_area("Текст поста")
+            if st.button("Послать в Туманность"):
+                requests.post(f"{DB_URL}posts.json", json={"author": f"{neb_name} (Группа)", "text": txt_n, "time": datetime.now().strftime("%H:%M"), "likes": 0})
+                st.rerun()
+    
+    # Посты группы
+    all_posts = requests.get(f"{DB_URL}posts.json").json() or {}
+    for pid, p in reversed(list(all_posts.items())):
+        if neb_name in p.get('author', ''):
+            render_post(pid, p, is_nebula=True)
+
+# 4. РАДИО (МЕССЕНДЖЕР)
 elif st.session_state.page == "dm":
-    st.title("Радиоэфир")
-    target = st.selectbox("Собеседник", [u for u in all_users.keys() if u != st.session_state.username])
+    st.title("📟 Радиоэфир")
+    target = st.selectbox("Выберите контакт", [u for u in all_users.keys() if u != st.session_state.username])
     chat_id = "".join(sorted([st.session_state.username, target]))
     msgs = requests.get(f"{DB_URL}messages/{chat_id}.json").json() or {}
-    for m in msgs.values():
-        align = "right" if m['from'] == st.session_state.username else "left"
-        c_bg = "#3D3D6B" if align == "right" else brd
-        c_tx = "white" if align == "right" else txt
-        st.markdown(f"<div style='text-align:{align};'><div class='msg-cloud' style='background:{c_bg}; color:{c_tx};'>{m['text']}</div></div>", unsafe_allow_html=True)
-    m_in = st.text_input("Сообщение...", key="m_in")
-    if st.button("Послать"):
-        requests.post(f"{DB_URL}messages/{chat_id}.json", json={"from": st.session_state.username, "text": m_in, "time": datetime.now().strftime("%H:%M")}); st.rerun()
-
-elif st.session_state.page == "my_profile":
-    st.title("Настройки")
+    
     with st.container(border=True):
-        new_a = st.text_input("Аватар URL", value=my_data.get('avatar', DEFAULT_AVA))
-        new_b = st.text_area("О себе", value=my_data.get('bio', ''))
+        for m in msgs.values():
+            st.write(f"**{m['from']}**: {m['text']}")
+    
+    m_in = st.text_input("Ваш сигнал...")
+    if st.button("Отправить"):
+        requests.post(f"{DB_URL}messages/{chat_id}.json", json={"from": st.session_state.username, "text": m_in, "time": datetime.now().strftime("%H:%M")})
+        st.rerun()
+
+# 5. НАСТРОЙКИ
+elif st.session_state.page == "settings":
+    st.title("⚙️ Настройки")
+    with st.container(border=True):
+        new_ava = st.text_input("URL аватара", value=my_data.get('avatar', DEFAULT_AVA))
+        new_bio = st.text_area("О себе", value=my_data.get('bio', ''))
         if st.button("Сохранить изменения"):
-            requests.patch(f"{DB_URL}users/{st.session_state.username}.json", json={"avatar": new_a, "bio": new_b}); st.rerun()
-
-elif st.session_state.page == "search":
-    st.title("Поиск")
-    q = st.text_input("Никнейм...", label_visibility="collapsed")
-    for name in all_users:
-        if q.lower() in name.lower() and name != st.session_state.username:
-            if st.button(f"👤 @{name}", key=f"sr_{name}"):
-                st.session_state.viewing_profile = name; st.rerun()
-
-elif st.session_state.page == "galaxy":
-    st.title("Спутники")
-    for s in my_satellites:
-        if st.button(f"🛰️ @{s}", key=f"gal_{s}"): st.session_state.viewing_profile = s; st.rerun()
+            requests.patch(f"{DB_URL}users/{st.session_state.username}.json", json={"avatar": new_ava, "bio": new_bio})
+            st.success("Обновлено!")
