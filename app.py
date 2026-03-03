@@ -3,142 +3,148 @@ import requests
 from datetime import datetime
 import hashlib
 
-# 1. Конфигурация страницы
-st.set_page_config(page_title="MilkyGram", page_icon="📸", layout="centered")
+# 1. Конфигурация
+st.set_page_config(page_title="MilkyGram", page_icon="📸", layout="wide")
 
-# --- КАСТОМНЫЙ CSS (DARK STYLE) ---
+# --- УЛУЧШЕННЫЙ ТЕМНЫЙ CSS ---
 st.markdown("""
     <style>
     .stApp { background-color: #000000; color: #FFFFFF; }
-    [data-testid="stHeader"] { background-color: #000000; border-bottom: 1px solid #262626; }
-    h1, h2, h3, h4, h5, h6, p, span, label { color: #FFFFFF !important; }
-    .stTextInput>div>div>input, .stTextArea>div>div>textarea {
-        background-color: #121212 !important; color: #FFFFFF !important; border: 1px solid #363636 !important;
-    }
+    [data-testid="stSidebar"] { background-color: #121212; border-right: 1px solid #262626; }
     .stButton>button {
-        background-color: #0095f6 !important; color: white !important; border-radius: 8px !important; border: none !important; width: 100%;
+        background-color: #0095f6; color: white; border-radius: 8px; border: none; width: 100%;
+        font-weight: bold; margin-bottom: 10px;
     }
-    div[data-testid="stVerticalBlock"] > div[style*="border: 1px solid"] {
-        background-color: #000000 !important; border: 1px solid #262626 !important; border-radius: 10px; padding: 10px;
-    }
+    .stButton>button:hover { background-color: #1877f2; border: none; color: white; }
+    /* Стиль для активной "кнопки" меню */
+    .menu-item { padding: 10px; border-radius: 8px; cursor: pointer; margin-bottom: 5px; }
+    .stTextInput>div>div>input { background-color: #121212; color: white; border: 1px solid #363636; }
     </style>
     """, unsafe_allow_html=True)
 
-# Ссылки на Firebase
 DB_URL = "https://milky-way-8ea60-default-rtdb.firebaseio.com/"
-URL_POSTS = f"{DB_URL}posts.json"
-URL_USERS = f"{DB_URL}users.json"
-URL_MESSAGES = f"{DB_URL}messages.json"
-URL_NOTIFS = f"{DB_URL}notifications.json"
 
-def hash_pass(password):
-    return hashlib.sha256(str.encode(password)).hexdigest()
+# --- ФУНКЦИИ ---
+def hash_pass(p): return hashlib.sha256(str.encode(p)).hexdigest()
 
-def add_notification(to_user, text, type="info"):
-    """Функция для создания уведомления в базе"""
-    notif_data = {
-        "from": st.session_state.username,
-        "text": text,
-        "type": type,
-        "time": datetime.now().strftime("%H:%M"),
-        "read": False
-    }
-    requests.post(f"{DB_URL}notifications/{to_user}.json", json=notif_data)
+def add_notif(to_u, txt):
+    requests.post(f"{DB_URL}notifications/{to_u}.json", 
+                  json={"from": st.session_state.username, "text": txt, "time": datetime.now().strftime("%H:%M"), "read": False})
 
-# --- СИСТЕМА ВХОДА ---
-if 'logged_in' not in st.session_state:
-    st.session_state.logged_in = False
+# --- АВТОРИЗАЦИЯ ---
+if 'logged_in' not in st.session_state: st.session_state.logged_in = False
 
-col_head, col_log = st.columns([2, 1])
-with col_head: st.header("📸 MilkyGram")
+if not st.session_state.logged_in:
+    st.title("📸 MilkyGram")
+    tab_in, tab_reg = st.tabs(["Вход", "Регистрация"])
+    with tab_in:
+        u = st.text_input("Username", key="u1")
+        p = st.text_input("Password", type="password", key="p1")
+        if st.button("Войти"):
+            res = requests.get(f"{DB_URL}users/{u}.json").json()
+            if res and res['password'] == hash_pass(p):
+                st.session_state.logged_in, st.session_state.username = True, u
+                st.rerun()
+    with tab_reg:
+        u2 = st.text_input("Придумайте ник", key="u2")
+        p2 = st.text_input("Придумайте пароль", type="password", key="p2")
+        if st.button("Создать аккаунт"):
+            requests.put(f"{DB_URL}users/{u2}.json", json={"password": hash_pass(p2), "avatar": "https://cdn-icons-png.flaticon.com/512/149/149071.png", "bio": "Я в MilkyGram!"})
+            st.success("Готово! Теперь войдите.")
+    st.stop()
 
-with col_log:
-    if not st.session_state.logged_in:
-        with st.expander("🔑 Вход"):
-            mode = st.radio("Действие", ["Вход", "Регистрация"], label_visibility="collapsed")
-            u_in = st.text_input("Никнейм")
-            p_in = st.text_input("Пароль", type="password")
-            if st.button("ОК"):
-                user_url = f"{DB_URL}users/{u_in}.json"
-                if mode == "Регистрация":
-                    requests.put(user_url, json={"password": hash_pass(p_in), "avatar": "https://cdn-icons-png.flaticon.com/512/149/149071.png", "bio": "Сталкер звезд"})
-                    st.success("Успех!")
-                else:
-                    data = requests.get(user_url).json()
-                    if data and data['password'] == hash_pass(p_in):
-                        st.session_state.logged_in, st.session_state.username = True, u_in
-                        st.rerun()
-    else:
-        st.write(f"@{st.session_state.username}")
-        if st.button("Выйти"):
-            st.session_state.logged_in = False
+# --- БОКОВОЕ МЕНЮ (SIDEBAR) ---
+with st.sidebar:
+    st.title("MilkyGram")
+    st.write(f"👤 **@{st.session_state.username}**")
+    st.write("---")
+    
+    # Кнопки навигации
+    if st.button("🌎 Лента"): st.session_state.page = "feed"
+    if st.button("🔍 Поиск"): st.session_state.page = "search"
+    if st.button("✉️ Директ"): st.session_state.page = "dm"
+    
+    # Считаем уведомления для кнопки
+    notifs = requests.get(f"{DB_URL}notifications/{st.session_state.username}.json").json() or {}
+    unread = len([n for n in notifs.values() if not n.get('read')])
+    notif_btn_text = f"🔔 Уведомления ({unread})" if unread > 0 else "🔔 Уведомления"
+    
+    if st.button(notif_btn_text): st.session_state.page = "notifs"
+    if st.button("👤 Профиль"): st.session_state.page = "profile"
+    
+    st.write("---")
+    if st.button("🚪 Выход"):
+        st.session_state.logged_in = False
+        st.rerun()
+
+# Установка страницы по умолчанию
+if 'page' not in st.session_state: st.session_state.page = "feed"
+
+# --- ОСНОВНОЙ КОНТЕНТ ---
+all_users = requests.get(f"{DB_URL}users.json").json() or {}
+
+# 1. ЛЕНТА
+if st.session_state.page == "feed":
+    st.header("Ваша лента")
+    with st.expander("➕ Новый пост"):
+        img = st.text_input("Ссылка на картинку")
+        txt = st.text_area("Описание")
+        if st.button("Опубликовать"):
+            requests.post(f"{DB_URL}posts.json", json={"author": st.session_state.username, "img": img, "text": txt, "time": datetime.now().strftime("%H:%M")})
             st.rerun()
-
-if not st.session_state.logged_in: st.stop()
-
-# --- ПОЛУЧЕНИЕ УВЕДОМЛЕНИЙ ДЛЯ СЧЕТЧИКА ---
-my_notifs = requests.get(f"{DB_URL}notifications/{st.session_state.username}.json").json() or {}
-unread_count = len([n for n in my_notifs.values() if not n.get('read')])
-notif_label = f"🔔 Уведомления ({unread_count})" if unread_count > 0 else "🔔 Уведомления"
-
-# --- НАВИГАЦИЯ ---
-st.write("---")
-page = st.selectbox("Меню", ["🌎 Лента", "🔍 Поиск", "✉️ Директ", notif_label, "👤 Профиль"], label_visibility="collapsed")
-st.write("---")
-
-all_users = requests.get(URL_USERS).json() or {}
-
-# --- РАЗДЕЛ: УВЕДОМЛЕНИЯ ---
-if "Уведомления" in page:
-    st.subheader("Ваши уведомления")
-    if my_notifs:
-        for n_id, n in reversed(list(my_notifs.items())):
+    
+    posts = requests.get(f"{DB_URL}posts.json").json()
+    if posts:
+        for p in reversed(list(posts.values())):
             with st.container(border=True):
-                col_n1, col_n2 = st.columns([4, 1])
-                status = "🔵" if not n.get('read') else ""
-                col_n1.write(f"{status} **{n['from']}**: {n['text']}")
-                col_n1.caption(f"🕒 {n['time']}")
-                if not n.get('read'):
-                    if col_n2.button("Ок", key=f"read_{n_id}"):
-                        requests.patch(f"{DB_URL}notifications/{st.session_state.username}/{n_id}.json", json={"read": True})
-                        st.rerun()
-        if st.button("Очистить всё"):
-            requests.delete(f"{DB_URL}notifications/{st.session_state.username}.json")
-            st.rerun()
-    else:
-        st.write("Пока новостей нет.")
+                st.write(f"**@{p['author']}**")
+                if p.get('img'): st.image(p['img'], use_container_width=True)
+                st.write(p['text'])
 
-# --- РАЗДЕЛ: ПОИСК (с запросом в друзья) ---
-elif page == "🔍 Поиск":
-    q = st.text_input("Найти кого-нибудь...")
-    if q:
-        filtered = {n: d for n, d in all_users.items() if q.lower() in n.lower()}
-        for n, d in filtered.items():
+# 2. ПОИСК
+elif st.session_state.page == "search":
+    st.header("Поиск людей")
+    q = st.text_input("Кого ищем?")
+    for name, data in all_users.items():
+        if q.lower() in name.lower():
             with st.container(border=True):
                 c1, c2, c3 = st.columns([1, 4, 2])
-                c1.image(d.get('avatar'), width=50)
-                c2.write(f"**{n}**")
-                if c3.button("В друзья", key=f"f_{n}"):
-                    add_notification(n, "хочет добавить вас в друзья! 🤝", "friend_request")
-                    st.success("Запрос отправлен!")
+                c1.image(data.get('avatar'), width=50)
+                c2.write(f"**{name}**")
+                if c3.button("В друзья", key=f"f_{name}"):
+                    add_notif(name, "отправил запрос в друзья! 🤝")
+                    st.success("Запрос улетел!")
 
-# --- РАЗДЕЛ: ДИРЕКТ (с уведомлением о сообщении) ---
-elif page == "✉️ Директ":
+# 3. УВЕДОМЛЕНИЯ
+elif st.session_state.page == "notifs":
+    st.header("Уведомления")
+    if notifs:
+        for nid, n in reversed(list(notifs.items())):
+            with st.container(border=True):
+                st.write(f"**{n['from']}**: {n['text']} (🕒 {n['time']})")
+                if not n.get('read'):
+                    if st.button("Прочитано", key=nid):
+                        requests.patch(f"{DB_URL}notifications/{st.session_state.username}/{nid}.json", json={"read": True})
+                        st.rerun()
+    else: st.write("Тишина...")
+
+# 4. ДИРЕКТ
+elif st.session_state.page == "dm":
+    st.header("Сообщения")
     target = st.selectbox("Собеседник", [u for u in all_users.keys() if u != st.session_state.username])
-    m_txt = st.text_input("Сообщение...")
+    msg = st.text_input("Сообщение...")
     if st.button("Отправить"):
-        requests.post(URL_MESSAGES, json={"from": st.session_state.username, "to": target, "text": m_txt, "time": datetime.now().strftime("%H:%M")})
-        add_notification(target, f"прислал вам новое сообщение: '{m_txt[:20]}...'", "message")
+        requests.post(f"{DB_URL}messages.json", json={"from": st.session_state.username, "to": target, "text": msg, "time": datetime.now().strftime("%H:%M")})
+        add_notif(target, f"написал вам: {msg[:15]}...")
         st.rerun()
-    
-    # Отображение переписки (упрощенно)
-    msgs = requests.get(URL_MESSAGES).json() or {}
-    for m in reversed(list(msgs.values())):
-        if (m['from'] == st.session_state.username and m['to'] == target) or (m['to'] == st.session_state.username and m['from'] == target):
-            st.write(f"**{m['from']}**: {m['text']}")
 
-# --- ОСТАЛЬНЫЕ РАЗДЕЛЫ (Лента и Профиль остаются прежними) ---
-elif page == "🌎 Лента":
-    st.write("Тут лента постов...") # (Добавь сюда код из прошлой версии)
-elif page == "👤 Профиль":
-    st.write("Тут настройки профиля...") # (Добавь сюда код из прошлой версии)
+# 5. ПРОФИЛЬ
+elif st.session_state.page == "profile":
+    me = all_users.get(st.session_state.username, {})
+    st.header(f"Профиль @{st.session_state.username}")
+    st.image(me.get('avatar'), width=150)
+    new_a = st.text_input("Ссылка на фото", value=me.get('avatar'))
+    new_b = st.text_area("О себе", value=me.get('bio'))
+    if st.button("Сохранить"):
+        requests.patch(f"{DB_URL}users/{st.session_state.username}.json", json={"avatar": new_a, "bio": new_b})
+        st.rerun()
