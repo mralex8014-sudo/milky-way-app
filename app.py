@@ -11,15 +11,15 @@ if 'logged_in' not in st.session_state: st.session_state.logged_in = False
 if 'page' not in st.session_state: st.session_state.page = "feed"
 if 'theme' not in st.session_state: st.session_state.theme = "Dark"
 
-# --- ДИНАМИЧЕСКИЙ CSS (Исправлены скобки) ---
+# --- ДИНАМИЧЕСКИЙ CSS ---
 if st.session_state.theme == "Dark":
     bg_col, txt_col, brd_col, input_bg = "#000000", "#FFFFFF", "#262626", "#121212"
 else:
     bg_col, txt_col, brd_col, input_bg = "#FFFFFF", "#000000", "#DBDBDB", "#FAFAFA"
 
+# ВАЖНО: Используем двойные {{ }} для CSS, чтобы не было ошибки format
 st.markdown(f"""
     <style>
-    /* Все скобки ниже — двойные, чтобы Python их игнорировал */
     .stApp {{ background-color: {bg_col}; color: {txt_col}; }}
     [data-testid="stSidebar"] {{ background-color: {input_bg}; border-right: 1px solid {brd_col}; }}
     h1, h2, h3, h4, p, span, label {{ color: {txt_col} !important; }}
@@ -43,7 +43,7 @@ DB_URL = "https://milky-way-8ea60-default-rtdb.firebaseio.com/"
 
 def hash_pass(p): return hashlib.sha256(str.encode(p)).hexdigest()
 
-# --- АВТОРИЗАЦИЯ ---
+# --- ЛОГИКА ВХОДА ---
 if not st.session_state.logged_in:
     st.title("📸 MilkyGram")
     t1, t2 = st.tabs(["Вход", "Регистрация"])
@@ -69,7 +69,6 @@ with st.sidebar:
     st.title("MilkyGram")
     st.write(f"👤 **@{st.session_state.username}**")
     
-    # Переключатель темы
     theme_on = st.toggle("🌙 Темная тема", value=(st.session_state.theme == "Dark"))
     st.session_state.theme = "Dark" if theme_on else "Light"
     
@@ -78,7 +77,7 @@ with st.sidebar:
     if st.button("🔍 Поиск"): st.session_state.page = "search"
     if st.button("✉️ Директ"): st.session_state.page = "dm"
     
-    # Загрузка уведомлений с защитой от None
+    # Безопасное получение уведомлений
     notifs_raw = requests.get(f"{DB_URL}notifications/{st.session_state.username}.json").json()
     notifs = notifs_raw if notifs_raw else {}
     unread = len([n for n in notifs.values() if isinstance(n, dict) and not n.get('read')])
@@ -92,6 +91,7 @@ with st.sidebar:
         st.rerun()
 
 # --- КОНТЕНТ ---
+# Защита от пустого списка пользователей
 all_users = requests.get(f"{DB_URL}users.json").json() or {}
 
 if st.session_state.page == "feed":
@@ -107,9 +107,41 @@ if st.session_state.page == "feed":
     if posts:
         for p in reversed(list(posts.values())):
             with st.container(border=True):
-                st.write(f"**@{p.get('author')}**")
+                st.write(f"**@{p.get('author', 'unknown')}**")
                 if p.get('img'): st.image(p['img'], use_container_width=True)
                 st.write(p.get('text', ''))
+    else: st.write("Лента пока пуста")
 
 elif st.session_state.page == "search":
-    st.header
+    st.header("Поиск")
+    q = st.text_input("Кого ищем?")
+    if q:
+        for n, d in all_users.items():
+            if q.lower() in n.lower():
+                with st.container(border=True):
+                    st.write(f"👤 **{n}**")
+                    if st.button("Перейти в чат", key=n):
+                        st.session_state.page = "dm"
+                        st.rerun()
+
+elif st.session_state.page == "profile":
+    me = all_users.get(st.session_state.username, {})
+    st.header("Профиль")
+    st.image(me.get('avatar', 'https://via.placeholder.com/150'), width=150)
+    new_a = st.text_input("Фото (URL)", value=me.get('avatar', ''))
+    new_b = st.text_area("О себе", value=me.get('bio', ''))
+    if st.button("Сохранить изменения"):
+        requests.patch(f"{DB_URL}users/{st.session_state.username}.json", json={"avatar": new_a, "bio": new_b})
+        st.success("Обновлено!")
+        st.rerun()
+
+elif st.session_state.page == "notifs":
+    st.header("Уведомления")
+    if notifs:
+        for nid, n in reversed(list(notifs.items())):
+            st.info(f"{n.get('from', 'System')}: {n.get('text', '')} ({n.get('time', '')})")
+    else: st.write("Новых уведомлений нет.")
+
+elif st.session_state.page == "dm":
+    st.header("Директ")
+    st.write("Мессенджер в разработке...")
