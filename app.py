@@ -6,56 +6,73 @@ import hashlib
 # 1. Настройка Вселенной
 st.set_page_config(page_title="MilkyGram Pro", page_icon="🌌", layout="wide")
 
-# --- ИНИЦИАЛИЗАЦИЯ ---
-defaults = {
+# --- ИНИЦИАЛИЗАЦИЯ SESSION STATE ---
+for key, val in {
     'logged_in': False, 'username': "", 'page': "my_profile", 
-    'viewing_profile': None, 'theme': "Dark"
-}
-for key, val in defaults.items():
+    'viewing_profile': None, 'theme': "Dark", 'chat_with': None
+}.items():
     if key not in st.session_state: st.session_state[key] = val
 
 DB_URL = "https://milky-way-8ea60-default-rtdb.firebaseio.com/"
 DEFAULT_AVA = "https://cdn-icons-png.flaticon.com/512/2592/2592188.png"
 
-# --- ЦВЕТОВАЯ СХЕМА ---
+# --- СТИЛИЗАЦИЯ ---
 if st.session_state.theme == "Dark":
     bg, txt, brd, inp, accent = "#0A0A0C", "#E0E0E0", "#22222E", "#11111B", "#3D3D6B"
 else:
     bg, txt, brd, inp, accent = "#EDEEF0", "#222222", "#DCE1E6", "#FFFFFF", "#4A76A8"
 
-st.markdown(f"<style>html, body, [class*='css'] {{ font-size: 13px !important; color: {txt}; }} .stApp {{ background-color: {bg}; }} div[data-testid='stVerticalBlock'] > div[style*='border: 1px solid'] {{ background-color: {inp} !important; border: 1px solid {brd} !important; border-radius: 8px; }}</style>", unsafe_allow_html=True)
+st.markdown(f"""<style>
+    html, body, [class*='css'] {{ font-size: 13px !important; color: {txt}; }}
+    .stApp {{ background-color: {bg}; }}
+    div[data-testid='stVerticalBlock'] > div[style*='border: 1px solid'] {{ 
+        background-color: {inp} !important; border: 1px solid {brd} !important; border-radius: 8px; 
+    }}
+    .stButton>button {{ border-radius: 6px; background-color: {accent}; color: white !important; width: 100%; }}
+</style>""", unsafe_allow_html=True)
 
-# --- ЛОГИКА ОБНОВЛЕНИЯ ONLINE ---
-if st.session_state.logged_in:
-    requests.patch(f"{DB_URL}users/{st.session_state.username}.json", 
-                   json={"last_seen": datetime.now().strftime("%d.%m %H:%M")})
+# --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
+def safe_image(url, w=None):
+    """Безопасная отрисовка фото для предотвращения MediaFileStorageError"""
+    valid_url = url if (url and isinstance(url, str) and len(url) > 5) else DEFAULT_AVA
+    try:
+        if w == 'stretch': st.image(valid_url, width='stretch')
+        else: st.image(valid_url, width=w if w else 150)
+    except:
+        st.image(DEFAULT_AVA, width=w if (w and w != 'stretch') else 150)
+
+def hash_pass(p): return hashlib.sha256(str.encode(p)).hexdigest()
+
+# --- ЛОГИКА ВХОДА ---
+if not st.session_state.logged_in:
+    st.title("🌌 MilkyGram Pro")
+    c1, _ = st.columns([1, 2])
+    with c1:
+        with st.container(border=True):
+            u = st.text_input("Позывной")
+            p = st.text_input("Код", type="password")
+            if st.button("Войти"):
+                res = requests.get(f"{DB_URL}users/{u}.json").json()
+                if res and res.get('password') == hash_pass(p):
+                    st.session_state.logged_in, st.session_state.username = True, u
+                    st.rerun()
+    st.stop()
+
+# --- ОБНОВЛЕНИЕ СТАТУСА ONLINE ---
+requests.patch(f"{DB_URL}users/{st.session_state.username}.json", 
+               json={"last_seen": datetime.now().strftime("%H:%M")})
 
 # --- ЗАГРУЗКА ДАННЫХ ---
 all_users = requests.get(f"{DB_URL}users.json").json() or {}
 my_data = all_users.get(st.session_state.username, {})
-my_following = my_data.get('following', []) or []
-my_followers = my_data.get('followers', []) or []
 
-# --- ФУНКЦИИ ВЗАИМОДЕЙСТВИЯ ---
-def get_friends(user_name):
-    u = all_users.get(user_name, {})
-    ing = u.get('following', []) or []
-    ers = u.get('followers', []) or []
-    return [name for name in ing if name in ers]
-
-def get_only_followers(user_name):
-    u = all_users.get(user_name, {})
-    ing = u.get('following', []) or []
-    ers = u.get('followers', []) or []
-    return [name for name in ers if name not in ing]
-
-# --- САЙДБАР (ВК-СТАЙЛ) ---
+# --- САЙДБАР ---
 with st.sidebar:
-    st.title("MilkyGram")
+    st.markdown(f"### @{st.session_state.username}")
     if st.button("🏠 Моя страница"): st.session_state.page, st.session_state.viewing_profile = "my_profile", None; st.rerun()
     if st.button("📡 Лента новостей"): st.session_state.page = "feed"; st.rerun()
     if st.button("📟 Сообщения"): st.session_state.page = "dm"; st.rerun()
-    if st.button("⚙️ Анкета / Настройки"): st.session_state.page = "settings"; st.rerun()
+    if st.button("📝 Анкета"): st.session_state.page = "settings"; st.rerun()
     st.write("---")
     if st.button("🚪 Выйти"): st.session_state.logged_in = False; st.rerun()
 
@@ -65,98 +82,95 @@ if st.session_state.page == "my_profile" or st.session_state.viewing_profile:
     u = all_users.get(target, {})
     info = u.get('info', {})
     
-    # Шапка профиля
     with st.container(border=True):
         c1, c2 = st.columns([1, 3])
-        with c1:
-            st.image(u.get('avatar', DEFAULT_AVA), width='stretch')
-            if target != st.session_state.username:
-                if st.button("✉️ Сообщение"): 
-                    st.session_state.page = "dm"; st.session_state.chat_with = target; st.rerun()
+        with c1: safe_image(u.get('avatar'), w='stretch')
         with c2:
-            # Статус Online
-            last_seen = u.get('last_seen', 'Давно')
-            st.markdown(f"### {info.get('f_name', target)} {info.get('l_name', '')} <span style='font-size:10px; color:green;'>● online</span>" if last_seen == datetime.now().strftime("%d.%m %H:%M") else f"### {target} <span style='font-size:10px; color:gray;'>был {last_seen}</span>", unsafe_allow_html=True)
-            st.caption(f"📢 {u.get('status', 'Статус не установлен')}")
+            now_time = datetime.now().strftime("%H:%M")
+            is_online = u.get('last_seen') == now_time
+            st.markdown(f"### {info.get('f_name', target)} {'<span style='color:green; font-size:10px;'>● online</span>' if is_online else f'<span style='color:gray; font-size:10px;'>был в {u.get('last_seen', '---')}</span>'}", unsafe_allow_html=True)
+            st.caption(f"📢 {u.get('status', 'Статус не задан')}")
             
-            # Анкета
-            col_a, col_b = st.columns(2)
-            with col_a:
-                st.write(f"🎂 **ДР:** {info.get('bday', 'Не указано')}")
-                st.write(f"📍 **Город:** {info.get('city', 'Не указано')}")
-            with col_b:
-                st.write(f"💍 **СП:** {info.get('status_rel', 'Не указано')}")
-                st.write(f"📧 **E-mail:** {info.get('email', 'Скрыто')}")
-            st.write(f"🧩 **Интересы:** {info.get('interests', 'Космос, звезды...')}")
+            # Анкета (Компактно)
+            st.markdown(f"""
+            **Город:** {info.get('city', '---')} | **ДР:** {info.get('bday', '---')} | **СП:** {info.get('status_rel', '---')}
+            
+            **Интересы:** {info.get('interests', 'Исследование пустоты...')}
+            """)
+            
+            if target != st.session_state.username:
+                if st.button("✉️ Написать сигнал"):
+                    st.session_state.page = "dm"; st.session_state.chat_with = target; st.rerun()
 
-    # Списки Друзей и Подписчиков
-    t1, t2, t3 = st.tabs(["👥 Друзья", "📥 Подписчики", "🖼 Галерея"])
-    with t1:
-        friends = get_friends(target)
-        for f in friends: st.button(f"👤 {f}", key=f"fr_{f}", on_click=lambda x=f: setattr(st.session_state, 'viewing_profile', x))
-    with t2:
-        subs = get_only_followers(target)
-        for s in subs: st.button(f"📥 {s}", key=f"sub_{s}")
-    with t3:
-        st.write("Снимки из последних экспедиций:")
-        # Логика галереи: берем картинки из постов пользователя
+    # Списки (Друзья и Подписчики)
+    my_ing = my_data.get('following', []) or []
+    t_ing = u.get('following', []) or []
+    t_ers = u.get('followers', []) or []
+    
+    friends = [name for name in t_ing if name in t_ers]
+    only_subs = [name for name in t_ers if name not in t_ing]
+
+    tab1, tab2, tab3 = st.tabs([f"👥 Друзья ({len(friends)})", f"📥 Подписчики ({len(only_subs)})", "🖼 Галерея"])
+    
+    with tab1:
+        for f in friends:
+            if st.button(f"👤 {f}", key=f"f_list_{f}"): st.session_state.viewing_profile = f; st.rerun()
+    with tab2:
+        for s in only_subs:
+            if st.button(f"👽 {s}", key=f"s_list_{s}"): st.session_state.viewing_profile = s; st.rerun()
+    with tab3:
         posts = requests.get(f"{DB_URL}posts.json").json() or {}
-        imgs = [p['img'] for p in posts.values() if p.get('author') == target and p.get('img')]
-        if imgs: st.image(imgs[:4], width=150)
-        else: st.caption("Галерея пуста")
+        imgs = [p['img'] for p in posts.values() if p.get('author') == target and p.get('img') and len(p['img']) > 5]
+        if imgs: st.image(imgs[:6], width=100)
+        else: st.caption("Нет сохраненных снимков")
 
     # Стена
-    st.write("---")
+    st.markdown("---")
     st.subheader("📝 Стена")
-    # Поле публикации
     with st.container(border=True):
-        t_wall = st.text_area("Оставить запись...", height=70, label_visibility="collapsed")
-        if st.button("Опубликовать"):
+        t_wall = st.text_area("Написать...", height=60, label_visibility="collapsed")
+        if st.button("Опубликовать на стене"):
             requests.post(f"{DB_URL}posts.json", json={
                 "author": target, "creator": st.session_state.username, 
-                "text": t_wall, "time": datetime.now().strftime("%H:%M"), "likes": 0
+                "text": t_wall, "time": now_time, "likes": 0
             })
             st.rerun()
 
-    # Вывод постов и комментариев
-    posts = requests.get(f"{DB_URL}posts.json").json() or {}
-    for pid, p in reversed(list(posts.items())):
+    posts_data = requests.get(f"{DB_URL}posts.json").json() or {}
+    for pid, p in reversed(list(posts_data.items())):
         if p.get('author') == target:
             with st.container(border=True):
                 st.write(f"**{p['creator']}** <small>{p['time']}</small>", unsafe_allow_html=True)
                 st.write(p['text'])
-                # Мини-комментарии
-                with st.expander("💬 Комментарии"):
-                    coms = p.get('comments', {})
-                    for c in coms.values():
-                        st.markdown(f"**{c['user']}**: {c['txt']}")
-                    new_c = st.text_input("Написать ответ...", key=f"c_{pid}")
-                    if st.button("Отправить", key=f"b_{pid}"):
-                        requests.post(f"{DB_URL}posts/{pid}/comments.json", json={"user": st.session_state.username, "txt": new_c})
+                # Комментарии
+                with st.expander(f"💬 {len(p.get('comments', {}))}"):
+                    for cid, c in p.get('comments', {}).items():
+                        st.write(f"**{c['user']}**: {c['txt']}")
+                    c_in = st.text_input("Ответ...", key=f"in_{pid}")
+                    if st.button("ОК", key=f"btn_{pid}"):
+                        requests.post(f"{DB_URL}posts/{pid}/comments.json", json={"user": st.session_state.username, "txt": c_in})
                         st.rerun()
 
-# --- СТРАНИЦА НАСТРОЕК (АНКЕТА) ---
+# --- АНКЕТА ---
 elif st.session_state.page == "settings":
-    st.title("🛰️ Редактирование анкеты")
+    st.title("📝 Редактирование анкеты")
     with st.container(border=True):
-        st.subheader("Личные данные")
-        fn = st.text_input("Имя", value=my_data.get('info', {}).get('f_name', ''))
-        ln = st.text_input("Фамилия", value=my_data.get('info', {}).get('l_name', ''))
-        bd = st.text_input("Дата рождения (ДД.ММ.ГГГГ)", value=my_data.get('info', {}).get('bday', ''))
-        city = st.text_input("Город", value=my_data.get('info', {}).get('city', ''))
-        rel = st.selectbox("Семейное положение", ["Не указано", "В активном поиске", "Свободен(а)", "В отношениях", "Влюблен(а)"])
-        mail = st.text_input("Эл. почта", value=my_data.get('info', {}).get('email', ''))
-        ints = st.text_area("Интересы", value=my_data.get('info', {}).get('interests', ''))
+        i = my_data.get('info', {})
+        fn = st.text_input("Имя", value=i.get('f_name', ''))
+        ln = st.text_input("Фамилия", value=i.get('l_name', ''))
+        bd = st.text_input("ДР", value=i.get('bday', ''))
+        ct = st.text_input("Город", value=i.get('city', ''))
+        rl = st.selectbox("СП", ["Свободен", "В отношениях", "Сложно"], index=0)
+        em = st.text_input("E-mail", value=i.get('email', ''))
+        it = st.text_area("Интересы", value=i.get('interests', ''))
+        st.write("---")
+        st = st.text_input("Статус", value=my_data.get('status', ''))
+        av = st.text_input("Ссылка на аватар", value=my_data.get('avatar', ''))
         
-        st.subheader("Профиль")
-        stat = st.text_input("Статус (краткая фраза)", value=my_data.get('status', ''))
-        ava = st.text_input("Ссылка на аватар", value=my_data.get('avatar', DEFAULT_AVA))
-        
-        if st.button("🚀 Сохранить анкету"):
-            info_payload = {
-                "f_name": fn, "l_name": ln, "bday": bd, 
-                "city": city, "status_rel": rel, "email": mail, "interests": ints
+        if st.button("Сохранить"):
+            payload = {
+                "info": {"f_name": fn, "l_name": ln, "bday": bd, "city": ct, "status_rel": rl, "email": em, "interests": it},
+                "status": st, "avatar": av
             }
-            requests.patch(f"{DB_URL}users/{st.session_state.username}.json", 
-                           json={"info": info_payload, "status": stat, "avatar": ava})
-            st.success("Данные успешно синхронизированы с базой!")
+            requests.patch(f"{DB_URL}users/{st.session_state.username}.json", json=payload)
+            st.success("Данные обновлены!")
