@@ -3,47 +3,41 @@ import requests
 from datetime import datetime
 import hashlib
 
-# 1. Конфигурация страницы
+# 1. Настройка страницы
 st.set_page_config(page_title="MilkyGram", page_icon="📸", layout="wide")
 
-# --- ИНИЦИАЛИЗАЦИЯ СОСТОЯНИЙ ---
+# --- СОСТОЯНИЯ ---
 if 'logged_in' not in st.session_state: st.session_state.logged_in = False
 if 'page' not in st.session_state: st.session_state.page = "feed"
 if 'theme' not in st.session_state: st.session_state.theme = "Dark"
 
-# --- ДИНАМИЧЕСКИЙ CSS ---
-if st.session_state.theme == "Dark":
-    bg_col, txt_col, brd_col, input_bg = "#000000", "#FFFFFF", "#262626", "#121212"
-else:
-    bg_col, txt_col, brd_col, input_bg = "#FFFFFF", "#000000", "#DBDBDB", "#FAFAFA"
+# Стандартная аватарка, если в базе пусто
+DEFAULT_AVA = "https://cdn-icons-png.flaticon.com/512/149/149071.png"
 
-# ВАЖНО: Используем двойные {{ }} для CSS, чтобы не было ошибки format
+# --- CSS С ДВОЙНЫМИ СКОБКАМИ (чтобы не было AttributeError) ---
+bg, txt, brd, inp = ("#000000", "#FFFFFF", "#262626", "#121212") if st.session_state.theme == "Dark" else ("#FFFFFF", "#000000", "#DBDBDB", "#FAFAFA")
+
 st.markdown(f"""
     <style>
-    .stApp {{ background-color: {bg_col}; color: {txt_col}; }}
-    [data-testid="stSidebar"] {{ background-color: {input_bg}; border-right: 1px solid {brd_col}; }}
-    h1, h2, h3, h4, p, span, label {{ color: {txt_col} !important; }}
-    
+    .stApp {{ background-color: {bg}; color: {txt}; }}
+    [data-testid="stSidebar"] {{ background-color: {inp}; border-right: 1px solid {brd}; }}
+    h1, h2, h3, h4, p, span, label {{ color: {txt} !important; }}
     .stTextInput>div>div>input, .stTextArea>div>div>textarea {{
-        background-color: {input_bg} !important; color: {txt_col} !important; border: 1px solid {brd_col} !important;
+        background-color: {inp} !important; color: {txt} !important; border: 1px solid {brd} !important;
     }}
-    
     .stButton>button {{
-        background-color: #0095f6; color: white; border-radius: 8px; border: none; width: 100%;
-        font-weight: bold; transition: 0.3s;
+        background-color: #0095f6; color: white; border-radius: 8px; border: none; width: 100%; font-weight: bold;
     }}
-    
     div[data-testid="stVerticalBlock"] > div[style*="border: 1px solid"] {{
-        background-color: {bg_col} !important; border: 1px solid {brd_col} !important; border-radius: 10px; padding: 10px;
+        background-color: {bg} !important; border: 1px solid {brd} !important; border-radius: 10px; padding: 10px;
     }}
     </style>
     """, unsafe_allow_html=True)
 
 DB_URL = "https://milky-way-8ea60-default-rtdb.firebaseio.com/"
-
 def hash_pass(p): return hashlib.sha256(str.encode(p)).hexdigest()
 
-# --- ЛОГИКА ВХОДА ---
+# --- ВХОД ---
 if not st.session_state.logged_in:
     st.title("📸 MilkyGram")
     t1, t2 = st.tabs(["Вход", "Регистрация"])
@@ -55,93 +49,86 @@ if not st.session_state.logged_in:
             if res and res.get('password') == hash_pass(p):
                 st.session_state.logged_in, st.session_state.username = True, u
                 st.rerun()
-            else: st.error("Ошибка входа")
+            else: st.error("Ошибка!")
     with t2:
         u2 = st.text_input("Ник", key="u_reg")
         p2 = st.text_input("Пароль", type="password", key="p_reg")
         if st.button("Создать"):
-            requests.put(f"{DB_URL}users/{u2}.json", json={"password": hash_pass(p2), "avatar": "https://cdn-icons-png.flaticon.com/512/149/149071.png", "bio": "Привет!"})
-            st.success("Готово!")
+            requests.put(f"{DB_URL}users/{u2}.json", json={"password": hash_pass(p2), "avatar": DEFAULT_AVA, "bio": "Новичок"})
+            st.success("Аккаунт создан!")
     st.stop()
 
-# --- МЕНЮ (SIDEBAR) ---
+# --- МЕНЮ ---
 with st.sidebar:
     st.title("MilkyGram")
-    st.write(f"👤 **@{st.session_state.username}**")
-    
     theme_on = st.toggle("🌙 Темная тема", value=(st.session_state.theme == "Dark"))
     st.session_state.theme = "Dark" if theme_on else "Light"
     
     st.write("---")
     if st.button("🌎 Лента"): st.session_state.page = "feed"
     if st.button("🔍 Поиск"): st.session_state.page = "search"
-    if st.button("✉️ Директ"): st.session_state.page = "dm"
     
-    # Безопасное получение уведомлений
-    notifs_raw = requests.get(f"{DB_URL}notifications/{st.session_state.username}.json").json()
-    notifs = notifs_raw if notifs_raw else {}
+    notifs = requests.get(f"{DB_URL}notifications/{st.session_state.username}.json").json() or {}
     unread = len([n for n in notifs.values() if isinstance(n, dict) and not n.get('read')])
-    
     if st.button(f"🔔 Уведомления ({unread})" if unread > 0 else "🔔 Уведомления"): st.session_state.page = "notifs"
     if st.button("👤 Профиль"): st.session_state.page = "profile"
     
-    st.write("---")
     if st.button("🚪 Выход"):
         st.session_state.logged_in = False
         st.rerun()
 
 # --- КОНТЕНТ ---
-# Защита от пустого списка пользователей
 all_users = requests.get(f"{DB_URL}users.json").json() or {}
 
 if st.session_state.page == "feed":
     st.header("Лента")
-    with st.expander("➕ Поделиться моментом"):
-        img_url = st.text_input("Ссылка на фото")
-        cap = st.text_area("Описание")
-        if st.button("Опубликовать"):
-            requests.post(f"{DB_URL}posts.json", json={"author": st.session_state.username, "img": img_url, "text": cap, "time": datetime.now().strftime("%H:%M")})
+    with st.expander("➕ Пост"):
+        img = st.text_input("URL картинки")
+        cap = st.text_area("Текст")
+        if st.button("Публикация"):
+            requests.post(f"{DB_URL}posts.json", json={"author": st.session_state.username, "img": img, "text": cap, "time": datetime.now().strftime("%H:%M")})
             st.rerun()
 
     posts = requests.get(f"{DB_URL}posts.json").json()
     if posts:
         for p in reversed(list(posts.values())):
             with st.container(border=True):
-                st.write(f"**@{p.get('author', 'unknown')}**")
-                if p.get('img'): st.image(p['img'], use_container_width=True)
+                st.write(f"**@{p.get('author')}**")
+                # ЗАЩИТА: проверяем, что ссылка не пустая
+                p_img = p.get('img')
+                if p_img and p_img.strip() != "":
+                    st.image(p_img, use_container_width=True)
                 st.write(p.get('text', ''))
-    else: st.write("Лента пока пуста")
 
 elif st.session_state.page == "search":
     st.header("Поиск")
-    q = st.text_input("Кого ищем?")
+    q = st.text_input("Имя...")
     if q:
         for n, d in all_users.items():
             if q.lower() in n.lower():
                 with st.container(border=True):
-                    st.write(f"👤 **{n}**")
-                    if st.button("Перейти в чат", key=n):
-                        st.session_state.page = "dm"
-                        st.rerun()
+                    c1, c2 = st.columns([1, 5])
+                    # ЗАЩИТА: если аватар пуст, ставим DEFAULT_AVA
+                    ava = d.get('avatar') if d.get('avatar') else DEFAULT_AVA
+                    c1.image(ava, width=50)
+                    c2.write(f"**{n}**")
 
 elif st.session_state.page == "profile":
     me = all_users.get(st.session_state.username, {})
     st.header("Профиль")
-    st.image(me.get('avatar', 'https://via.placeholder.com/150'), width=150)
-    new_a = st.text_input("Фото (URL)", value=me.get('avatar', ''))
+    # ЗАЩИТА АВАТАРА
+    my_ava = me.get('avatar') if me.get('avatar') else DEFAULT_AVA
+    st.image(my_ava, width=150)
+    
+    new_a = st.text_input("Новый аватар (URL)", value=my_ava)
     new_b = st.text_area("О себе", value=me.get('bio', ''))
-    if st.button("Сохранить изменения"):
+    if st.button("Сохранить"):
         requests.patch(f"{DB_URL}users/{st.session_state.username}.json", json={"avatar": new_a, "bio": new_b})
-        st.success("Обновлено!")
         st.rerun()
 
 elif st.session_state.page == "notifs":
     st.header("Уведомления")
     if notifs:
         for nid, n in reversed(list(notifs.items())):
-            st.info(f"{n.get('from', 'System')}: {n.get('text', '')} ({n.get('time', '')})")
-    else: st.write("Новых уведомлений нет.")
-
-elif st.session_state.page == "dm":
-    st.header("Директ")
-    st.write("Мессенджер в разработке...")
+            st.info(f"{n.get('from')}: {n.get('text')}")
+    else: st.write("Пусто")
