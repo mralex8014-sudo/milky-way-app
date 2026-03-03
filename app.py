@@ -1,141 +1,165 @@
 import streamlit as st
 import requests
 from datetime import datetime
+import hashlib
 
-# 1. Настройка страницы
-st.set_page_config(page_title="MilkyGram | Моя Страница", layout="wide")
-
-# --- Инициализация состояния ---
-for key, val in {
-    'username': "Pilot_Alpha", 'page': "profile", 'logged_in': True, 'viewing_profile': None
-}.items():
-    if key not in st.session_state: st.session_state[key] = val
+# 1. Системные настройки
+st.set_page_config(page_title="MilkyGram Pro", page_icon="🌌", layout="wide")
 
 DB_URL = "https://milky-way-8ea60-default-rtdb.firebaseio.com/"
 DEFAULT_AVA = "https://cdn-icons-png.flaticon.com/512/2592/2592188.png"
 
-# --- ВК-СТИЛЬ 2026 (CSS) ---
+# --- Инициализация состояний (чтобы кнопки работали) ---
+if 'page' not in st.session_state: st.session_state.page = "profile"
+if 'logged_in' not in st.session_state: st.session_state.logged_in = False
+if 'username' not in st.session_state: st.session_state.username = ""
+if 'viewing_profile' not in st.session_state: st.session_state.viewing_profile = None
+
+# --- Стилизация (CSS) ---
 st.markdown("""
 <style>
-    .stApp { background-color: #0A0A12; }
-    .vk-card {
-        background-color: #19191B;
-        border: 1px solid #2D2D2E;
-        border-radius: 12px;
-        padding: 20px;
-        margin-bottom: 15px;
-    }
-    .vk-name { color: #E1E3E6; font-size: 22px; font-weight: 500; margin-bottom: 2px; }
-    .vk-status { color: #828282; font-size: 14px; margin-bottom: 15px; border-bottom: 1px solid #2D2D2E; padding-bottom: 10px; }
-    .vk-info-table { width: 100%; font-size: 14px; }
-    .vk-info-label { color: #828282; width: 160px; padding: 4px 0; }
-    .vk-info-value { color: #71AAEB; padding: 4px 0; }
-    
-    /* Убираем стандартные отступы Streamlit для кнопок в меню */
-    div[data-testid="stVerticalBlock"] > div { border: none !important; }
+    .stApp { background-color: #0A0A12; color: #E1E3E6; }
+    .vk-card { background-color: #19191B; border: 1px solid #2D2D2E; border-radius: 12px; padding: 15px; margin-bottom: 10px; }
+    .vk-name { font-size: 20px; font-weight: 500; color: #FFFFFF; }
+    .vk-status { color: #828282; font-size: 13px; padding-bottom: 10px; border-bottom: 1px solid #2D2D2E; }
+    [data-testid="stMetricValue"] { color: #71AAEB !important; font-size: 18px !important; }
+    .stButton>button { width: 100%; border-radius: 8px; background-color: #2D2D2E; color: white; border: none; }
+    .stButton>button:hover { background-color: #3D3D3E; border: 1px solid #71AAEB; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- ЗАГРУЗКА ДАННЫХ ---
-all_users = requests.get(f"{DB_URL}users.json").json() or {}
-u_data = all_users.get(st.session_state.username, {})
-info = u_data.get('info', {})
+# --- Вспомогательные функции ---
+def hash_pass(p): return hashlib.sha256(str.encode(p)).hexdigest()
 
-# --- ШАПКА ---
-header_left, header_right = st.columns([2, 8])
-header_left.markdown("<h3 style='color:white; margin:0;'>🌌 MilkyGram</h3>", unsafe_allow_html=True)
+def get_user_data(user):
+    res = requests.get(f"{DB_URL}users/{user}.json").json()
+    return res if res else {}
+
+# --- ЛОГИКА АВТОРИЗАЦИИ ---
+if not st.session_state.logged_in:
+    st.title("🌌 MilkyGram: Вход в систему")
+    col1, _ = st.columns([1, 2])
+    with col1:
+        with st.container(border=True):
+            u = st.text_input("Позывной")
+            p = st.text_input("Пароль", type="password")
+            if st.button("Войти"):
+                data = get_user_data(u)
+                if data and data.get('password') == hash_pass(p):
+                    st.session_state.logged_in = True
+                    st.session_state.username = u
+                    st.rerun()
+                else: st.error("Ошибка доступа")
+    st.stop()
+
+# --- ОСНОВНОЙ КОНТЕНТ ПОСЛЕ ВХОДА ---
+all_users = requests.get(f"{DB_URL}users.json").json() or {}
+my_data = all_users.get(st.session_state.username, {})
+
+# Шапка сайта
+h_left, h_right = st.columns([2, 8])
+h_left.markdown("### 🌌 MilkyGram")
+h_right.write(f"Вы вошли как: **@{st.session_state.username}**")
 st.divider()
 
-# --- ОСНОВНАЯ СЕТКА (3 КОЛОНКИ) ---
+# Основная сетка: Навигация | Левая панель | Контент
 col_nav, col_side, col_main = st.columns([1.5, 2.5, 6])
 
-# 1. ЛЕВОЕ МЕНЮ
+# --- 1. КНОПКИ НАВИГАЦИИ (Теперь работают!) ---
 with col_nav:
-    menu_items = [
-        ("🏠 Моя страница", "profile"),
-        ("📡 Новости", "feed"),
-        ("📟 Сообщения", "dm"),
-        ("👥 Друзья", "friends"),
-        ("⚙️ Настройки", "settings")
-    ]
-    for label, page in menu_items:
-        if st.button(label, key=f"nav_{page}", use_container_width=True):
-            st.session_state.page = page
-            st.rerun()
+    if st.button("🏠 Моя страница"): 
+        st.session_state.page = "profile"
+        st.session_state.viewing_profile = None
+        st.rerun()
+    if st.button("📡 Лента новостей"): 
+        st.session_state.page = "feed"
+        st.rerun()
+    if st.button("📟 Сообщения"): 
+        st.session_state.page = "messages"
+        st.rerun()
+    if st.button("📝 Редактировать"): 
+        st.session_state.page = "settings"
+        st.rerun()
+    st.write("---")
+    if st.button("🚪 Выйти"): 
+        st.session_state.logged_in = False
+        st.rerun()
 
-# 2. БЛОК АВАТАРА (Слева)
+# --- 2. ЛЕВАЯ ПАНЕЛЬ (Аватар) ---
+target = st.session_state.viewing_profile or st.session_state.username
+u_prof = all_users.get(target, {})
+
 with col_side:
-    with st.container():
-        st.markdown('<div class="vk-card">', unsafe_allow_html=True)
-        ava_url = u_data.get('avatar', DEFAULT_AVA)
-        # width='stretch' гарантирует заполнение контейнера
-        st.image(ava_url if (ava_url and len(ava_url)>5) else DEFAULT_AVA, use_container_width=True)
-        st.write("")
-        st.button("Редактировать", key="edit_profile_btn")
-        st.markdown('</div>', unsafe_allow_html=True)
-
-# 3. ЦЕНТРАЛЬНЫЙ БЛОК (Инфо + Стена)
-with col_main:
-    # Инфо-карточка
-    with st.container():
-        st.markdown('<div class="vk-card">', unsafe_allow_html=True)
-        st.markdown(f'<div class="vk-name">{info.get("f_name", st.session_state.username)} {info.get("l_name", "")}</div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="vk-status">{u_data.get("status", "установить статус")}</div>', unsafe_allow_html=True)
-        
-        rows = [
-            ("День рождения:", info.get("bday", "не указан")),
-            ("Город:", info.get("city", "Земля")),
-            ("Семейное положение:", info.get("status_rel", "не указано")),
-            ("Интересы:", info.get("interests", "не указаны"))
-        ]
-        
-        for label, val in rows:
-            st.markdown(f"""
-            <div style="display: flex; font-size: 14px; padding: 3px 0;">
-                <div style="color: #828282; width: 160px;">{label}</div>
-                <div style="color: #71AAEB;">{val}</div>
-            </div>""", unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    # Статистика
-    st.markdown('<div class="vk-card" style="padding: 5px 0;">', unsafe_allow_html=True)
-    s1, s2, s3, s4 = st.columns(4)
-    s1.metric("друзей", "142")
-    s2.metric("подписчиков", "85")
-    s3.metric("фото", "12")
-    s4.metric("постов", "4")
+    st.markdown('<div class="vk-card">', unsafe_allow_html=True)
+    ava = u_prof.get('avatar', DEFAULT_AVA)
+    st.image(ava if len(str(ava)) > 5 else DEFAULT_AVA, use_container_width=True)
+    if target != st.session_state.username:
+        if st.button("✉️ Написать"):
+            st.session_state.page = "messages"
+            st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # СТЕНА
-    st.markdown("<b style='color:#E1E3E6;'>Все записи</b>", unsafe_allow_html=True)
+# --- 3. ЦЕНТРАЛЬНЫЙ БЛОК (Логика страниц) ---
+with col_main:
     
-    with st.container():
+    # --- СТРАНИЦА ПРОФИЛЯ ---
+    if st.session_state.page == "profile":
+        info = u_prof.get('info', {})
         st.markdown('<div class="vk-card">', unsafe_allow_html=True)
-        # ИСПРАВЛЕНИЕ: Добавлен label и label_visibility для чистоты логов
-        t_post = st.text_input(
-            label="Поле для создания поста", 
-            placeholder="Что нового?", 
-            key="wall_input", 
-            label_visibility="collapsed"
-        )
-        if st.button("Опубликовать", key="wall_btn"):
-            if t_post:
-                requests.post(f"{DB_URL}posts.json", json={
-                    "author": st.session_state.username,
-                    "text": t_post,
-                    "time": datetime.now().strftime("%H:%M"),
-                    "likes": 0
-                })
-                st.rerun()
+        st.markdown(f'<div class="vk-name">{info.get("f_name", target)} {info.get("l_name", "")}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="vk-status">{u_prof.get("status", "Исследователь космоса")}</div>', unsafe_allow_html=True)
+        
+        # Инфо-таблица
+        details = {
+            "Город": info.get("city", "Не указан"),
+            "ДР": info.get("bday", "Не указан"),
+            "Интересы": info.get("interests", "Пустота...")
+        }
+        for k, v in details.items():
+            st.markdown(f"**{k}:** <span style='color:#71AAEB;'>{v}</span>", unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # Вывод постов
-    posts = requests.get(f"{DB_URL}posts.json").json() or {}
-    for pid, p in reversed(list(posts.items())):
-        if p.get('author') == st.session_state.username:
-            with st.container():
-                st.markdown('<div class="vk-card">', unsafe_allow_html=True)
-                st.markdown(f"<b style='color:#71AAEB;'>{p['author']}</b> <span style='color:#828282; font-size: 12px;'>в {p.get('time')}</span>", unsafe_allow_html=True)
-                st.write(p.get('text', ''))
-                st.markdown(f"<span style='color:#FF3347;'>❤ {p.get('likes', 0)}</span>", unsafe_allow_html=True)
-                st.markdown('</div>', unsafe_allow_html=True)
+        # Стена
+        st.subheader("📝 Стена")
+        with st.container(border=True):
+            t_post = st.text_input("Что нового?", key="post_in", label_visibility="collapsed")
+            if st.button("Опубликовать"):
+                requests.post(f"{DB_URL}posts.json", json={
+                    "author": target, "creator": st.session_state.username, 
+                    "text": t_post, "time": datetime.now().strftime("%H:%M")
+                })
+                st.rerun()
+        
+        # Вывод постов
+        posts = requests.get(f"{DB_URL}posts.json").json() or {}
+        for pid, p in reversed(list(posts.items())):
+            if p.get('author') == target:
+                with st.container(border=True):
+                    st.markdown(f"**{p.get('creator')}** <small>{p.get('time')}</small>", unsafe_allow_html=True)
+                    st.write(p.get('text'))
+
+    # --- СТРАНИЦА НОВОСТЕЙ ---
+    elif st.session_state.page == "feed":
+        st.subheader("📡 Последние сигналы из космоса")
+        posts = requests.get(f"{DB_URL}posts.json").json() or {}
+        for pid, p in reversed(list(posts.items())):
+            with st.container(border=True):
+                st.write(f"👤 **@{p.get('author')}**")
+                st.write(p.get('text'))
+
+    # --- СТРАНИЦА НАСТРОЕК ---
+    elif st.session_state.page == "settings":
+        st.subheader("⚙️ Редактирование Личного Дела")
+        i = my_data.get('info', {})
+        new_fn = st.text_input("Имя", i.get('f_name', ''))
+        new_city = st.text_input("Город", i.get('city', ''))
+        new_stat = st.text_input("Статус", my_data.get('status', ''))
+        new_ava = st.text_input("URL аватара", my_data.get('avatar', ''))
+        
+        if st.button("Сохранить изменения"):
+            requests.patch(f"{DB_URL}users/{st.session_state.username}.json", json={
+                "info": {"f_name": new_fn, "city": new_city},
+                "status": new_stat, "avatar": new_ava
+            })
+            st.success("Данные синхронизированы!")
+            st.rerun()
