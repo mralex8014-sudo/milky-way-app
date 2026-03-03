@@ -3,125 +3,83 @@ import requests
 from datetime import datetime
 import hashlib
 
-# 1. Настройка
-st.set_page_config(page_title="Млечный Путь: Профили", page_icon="🌌", layout="wide")
+# 1. Конфигурация в стиле соцсети
+st.set_page_config(page_title="MilkyGram", page_icon="📸", layout="centered")
+
+# Кастомный CSS для "инстаграмного" вида
+st.markdown("""
+    <style>
+    .stApp { background-color: white; }
+    [data-testid="stHeader"] { background-color: white; border-bottom: 1px solid #dbdbdb; }
+    .stButton>button { width: 100%; border-radius: 8px; }
+    img { border-radius: 8px; }
+    </style>
+    """, unsafe_allow_html=True)
 
 URL_POSTS = "https://milky-way-8ea60-default-rtdb.firebaseio.com/posts.json"
 URL_USERS = "https://milky-way-8ea60-default-rtdb.firebaseio.com/users.json"
-URL_MESSAGES = "https://milky-way-8ea60-default-rtdb.firebaseio.com/messages.json"
 
-def hash_pass(password):
-    return hashlib.sha256(str.encode(password)).hexdigest()
+# --- ШАПКА (Header) ---
+col_logo, col_search, col_nav = st.columns([1, 1, 1])
+with col_logo:
+    st.subheader("MilkyGram")
 
-# --- АВТОРИЗАЦИЯ (справа сверху) ---
+# --- ЛОГИКА ВХОДА ---
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 
-head_col, auth_col = st.columns([3, 1])
-with head_col:
-    st.title("🌌 Млечный Путь")
-
-with auth_col:
-    if not st.session_state.logged_in:
-        with st.expander("🔐 Вход"):
-            mode = st.radio("Действие", ["Вход", "Регистрация"])
-            u = st.text_input("Ник")
-            p = st.text_input("Пароль", type="password")
-            if st.button("ОК"):
-                user_url = f"https://milky-way-8ea60-default-rtdb.firebaseio.com/users/{u}.json"
-                if mode == "Регистрация":
-                    requests.put(user_url, json={"password": hash_pass(p), "avatar": "https://cdn-icons-png.flaticon.com/512/149/149071.png", "bio": "Новичок в космосе", "album": []})
-                    st.success("Создано!")
-                else:
-                    data = requests.get(user_url).json()
-                    if data and data['password'] == hash_pass(p):
-                        st.session_state.logged_in, st.session_state.username = True, u
-                        st.rerun()
-    else:
-        st.write(f"Привет, **{st.session_state.username}**")
-        if st.button("Выйти"):
-            st.session_state.logged_in = False
-            st.rerun()
-
 if not st.session_state.logged_in:
-    st.info("Пожалуйста, войдите в систему.")
+    st.warning("Пожалуйста, войдите в свой аккаунт")
+    with st.expander("🔑 Авторизация", expanded=True):
+        u = st.text_input("Username")
+        p = st.text_input("Password", type="password")
+        if st.button("Войти"):
+            res = requests.get(f"https://milky-way-8ea60-default-rtdb.firebaseio.com/users/{u}.json").json()
+            if res and res['password'] == hashlib.sha256(str.encode(p)).hexdigest():
+                st.session_state.logged_in, st.session_state.username = True, u
+                st.rerun()
     st.stop()
 
-# --- ГЛАВНОЕ МЕНЮ (справа) ---
-main_col, menu_col = st.columns([3, 1])
+# --- STORIES (Ряд аватарок) ---
+users_data = requests.get(URL_USERS).json() or {}
+st.write("---")
+story_cols = st.columns(7)
+for i, (name, data) in enumerate(list(users_data.items())[:7]):
+    with story_cols[i]:
+        st.image(data.get('avatar', 'https://via.placeholder.com/150'), width=60)
+        st.caption(name[:7])
+st.write("---")
 
-with menu_col:
-    st.subheader("Навигация")
-    page = st.radio("Куда идем?", ["🌎 Лента", "👤 Мой Профиль", "✉️ Сообщения", "👥 Люди"])
+# --- ОСНОВНАЯ ЛЕНТА ---
+# Кнопка создания поста (как "+" в инстаграме)
+with st.expander("➕ Создать новый пост"):
+    img_url = st.text_input("Ссылка на фото")
+    caption = st.text_area("Описание")
+    if st.button("Опубликовать"):
+        new_p = {"author": st.session_state.username, "img": img_url, "text": caption, "time": datetime.now().strftime("%d.%m %H:%M")}
+        requests.post(URL_POSTS, json=new_p)
+        st.rerun()
 
-with main_col:
-    # --- СТРАНИЦА ПРОФИЛЯ ---
-    if page == "👤 Мой Профиль":
-        user_url = f"https://milky-way-8ea60-default-rtdb.firebaseio.com/users/{st.session_state.username}.json"
-        user_data = requests.get(user_url).json()
-
-        col1, col2 = st.columns([1, 2])
-        with col1:
-            st.image(user_data.get('avatar', 'https://via.placeholder.com/150'), width=150)
-            if st.button("Изменить аватар"):
-                new_ava = st.text_input("Ссылка на новое фото:")
-                if new_ava:
-                    requests.patch(user_url, json={"avatar": new_ava})
-                    st.rerun()
-        
-        with col2:
-            st.header(st.session_state.username)
-            st.write(f"**О себе:** {user_data.get('bio', '...')}")
-            new_bio = st.text_input("Обновить статус:")
-            if st.button("Сохранить статус"):
-                requests.patch(user_url, json={"bio": new_bio})
-                st.rerun()
-
-        st.divider()
-        
-        # Альбом
-        st.subheader("🖼️ Мой Фотоальбом")
-        album_col1, album_col2 = st.columns(2)
-        with album_col1:
-            img_url = st.text_input("Добавить фото в альбом (ссылка):")
-            if st.button("Добавить в альбом"):
-                album = user_data.get('album', [])
-                if isinstance(album, dict): album = list(album.values()) # Костыль для Firebase
-                album.append(img_url)
-                requests.patch(user_url, json={"album": album})
-                st.rerun()
-        
-        # Показ альбома
-        album = user_data.get('album', [])
-        if album:
-            cols = st.columns(3)
-            for idx, img in enumerate(album):
-                cols[idx % 3].image(img, use_container_width=True)
-        else:
-            st.write("Альбом пока пуст.")
-
-    # --- ЛЕНТА (Общая) ---
-    elif page == "🌎 Лента":
-        st.header("Мировая лента")
-        with st.form("post"):
-            txt = st.text_area("Ваша мысль:")
-            if st.form_submit_button("Опубликовать"):
-                requests.post(URL_POSTS, json={"author": st.session_state.username, "text": txt, "time": datetime.now().strftime("%H:%M")})
-                st.rerun()
-        
-        posts = requests.get(URL_POSTS).json()
-        if posts:
-            for p in reversed(list(posts.values())):
-                st.chat_message("user").write(f"**{p['author']}**: {p['text']} ({p['time']})")
-
-    # --- ОСТАЛЬНЫЕ РАЗДЕЛЫ (Сообщения и Люди остаются из прошлого кода) ---
-    elif page == "✉️ Сообщения":
-        st.write("Тут ваши чаты (логика из прошлого шага)")
-    
-    elif page == "👥 Люди":
-        st.header("Жители сети")
-        all_users = requests.get(URL_USERS).json()
-        for name, data in all_users.items():
-            col_u1, col_u2 = st.columns([1, 4])
-            col_u1.image(data.get('avatar', 'https://via.placeholder.com/50'), width=50)
-            col_u2.write(f"**{name}** — {data.get('bio', '')}")
+# Отображение постов
+posts = requests.get(URL_POSTS).json()
+if posts:
+    for p_id in reversed(list(posts.keys())):
+        p = posts[p_id]
+        with st.container(border=True):
+            # Шапка поста
+            c1, c2 = st.columns([1, 6])
+            author_data = users_data.get(p['author'], {})
+            c1.image(author_data.get('avatar', 'https://via.placeholder.com/50'), width=40)
+            c2.markdown(f"**{p['author']}**")
+            
+            # Контент
+            if p.get('img'):
+                st.image(p['img'], use_container_width=True)
+            
+            st.write(f"**{p['author']}** {p['text']}")
+            st.caption(f"Опубликовано: {p['time']}")
+            
+            # Интерактивы
+            like_col, comm_col = st.columns([1, 5])
+            like_col.button("❤️", key=f"like_{p_id}")
+            comm_col.button("💬", key=f"comm_{p_id}")
