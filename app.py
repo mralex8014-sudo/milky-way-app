@@ -55,6 +55,7 @@ if not st.session_state.logged_in:
                 if res and res.get('password') == hash_pass(p_login):
                     st.session_state.logged_in, st.session_state.username = True, u_login
                     st.rerun()
+                else: st.error("Неверный позывной или код")
     st.stop()
 
 # --- ОБНОВЛЕНИЕ СТАТУСА ONLINE ---
@@ -87,19 +88,18 @@ if st.session_state.page == "my_profile" or st.session_state.viewing_profile:
         with c2:
             now_time = datetime.now().strftime("%H:%M")
             is_online = u_prof.get('last_seen') == now_time
-            # ИСПРАВЛЕНО: Кавычки внутри f-строки
             online_html = f'<span style="color:green; font-size:10px;">● online</span>' if is_online else f'<span style="color:gray; font-size:10px;">был в {u_prof.get("last_seen", "---")}</span>'
             st.markdown(f"### {info.get('f_name', target)} {online_html}", unsafe_allow_html=True)
             st.caption(f"📢 {u_prof.get('status', 'Статус не задан')}")
-            
             st.markdown(f"**Город:** {info.get('city', '---')} | **ДР:** {info.get('bday', '---')} | **СП:** {info.get('status_rel', '---')}")
-            st.write(f"🧩 **Интересы:** {info.get('interests', 'Исследование пустоты...')}")
+            st.write(f"🧩 **Интересы:** {info.get('interests', '---')}")
             
             if target != st.session_state.username:
-                if st.button("✉️ Написать сигнал"):
+                if st.button("✉️ Написать сообщение"):
                     st.session_state.page = "dm"; st.session_state.chat_with = target; st.rerun()
 
-    # Списки Друзей
+    # Списки Друзей и Подписчиков (Логика подписок)
+    my_ing = my_data.get('following', []) or []
     t_ing = u_prof.get('following', []) or []
     t_ers = u_prof.get('followers', []) or []
     friends = [name for name in t_ing if name in t_ers]
@@ -116,13 +116,16 @@ if st.session_state.page == "my_profile" or st.session_state.viewing_profile:
     with tab3:
         posts_all = requests.get(f"{DB_URL}posts.json").json() or {}
         imgs = [p['img'] for p in posts_all.values() if p.get('author') == target and p.get('img') and len(p['img']) > 5]
-        if imgs: st.image(imgs[:6], width=100)
-        else: st.caption("Нет сохраненных снимков")
+        if imgs:
+            cols = st.columns(3)
+            for idx, img_url in enumerate(imgs[:9]):
+                cols[idx % 3].image(img_url, use_container_width=True)
+        else: st.caption("Галерея пуста")
 
     st.markdown("---")
     st.subheader("📝 Стена")
     with st.container(border=True):
-        t_wall = st.text_area("Написать...", height=60, key="wall_input")
+        t_wall = st.text_area("Оставить запись...", height=60, key="wall_in")
         if st.button("Опубликовать"):
             requests.post(f"{DB_URL}posts.json", json={
                 "author": target, "creator": st.session_state.username, 
@@ -134,37 +137,74 @@ if st.session_state.page == "my_profile" or st.session_state.viewing_profile:
     for pid, p in reversed(list(posts_data.items())):
         if p.get('author') == target:
             with st.container(border=True):
-                st.write(f"**{p['creator']}** <small>{p['time']}</small>", unsafe_allow_html=True)
-                st.write(p['text'])
+                # ФИКС KEYERROR 'creator': используем .get()
+                creator_name = p.get('creator', p.get('author', 'Аноним'))
+                st.write(f"**{creator_name}** <small>{p.get('time', '')}</small>", unsafe_allow_html=True)
+                st.write(p.get('text', ''))
                 with st.expander(f"💬 {len(p.get('comments', {}))}"):
                     for cid, c in p.get('comments', {}).items():
-                        st.write(f"**{c['user']}**: {c['txt']}")
-                    c_in = st.text_input("Ответ...", key=f"in_{pid}")
+                        st.write(f"**{c.get('user', '???')}**: {c.get('txt', '')}")
+                    c_in = st.text_input("Ответить...", key=f"in_{pid}")
                     if st.button("ОК", key=f"btn_{pid}"):
                         requests.post(f"{DB_URL}posts/{pid}/comments.json", json={"user": st.session_state.username, "txt": c_in})
                         st.rerun()
 
+# --- МЕССЕНДЖЕР ---
+elif st.session_state.page == "dm":
+    st.title("📟 Радиоэфир")
+    # Если мы пришли из профиля, контакт уже выбран
+    contact_list = [u for u in all_users if u != st.session_state.username]
+    selected_contact = st.session_state.get('chat_with')
+    
+    target_chat = st.selectbox("Собеседник", contact_list, index=contact_list.index(selected_contact) if selected_contact in contact_list else 0)
+    
+    chat_id = "".join(sorted([st.session_state.username, target_chat]))
+    msgs = requests.get(f"{DB_URL}messages/{chat_id}.json").json() or {}
+    
+    with st.container(border=True):
+        for mid, m in msgs.items():
+            align = "right" if m.get('from') == st.session_state.username else "left"
+            st.markdown(f"<div style='text-align:{align};'><b>{m.get('from')}</b>: {m.get('text')}</div>", unsafe_allow_html=True)
+    
+    m_in = st.text_input("Введите сообщение...", key="msg_input")
+    if st.button("Отправить сигнал"):
+        requests.post(f"{DB_URL}messages/{chat_id}.json", json={"from": st.session_state.username, "text": m_in, "time": datetime.now().strftime("%H:%M")})
+        st.rerun()
+
+# --- ЛЕНТА НОВОСТЕЙ ---
+elif st.session_state.page == "feed":
+    st.title("📡 Новости Федерации")
+    posts_data = requests.get(f"{DB_URL}posts.json").json() or {}
+    for pid, p in reversed(list(posts_data.items())):
+        # Показываем посты друзей и свои
+        if p.get('author') in my_data.get('following', []) or p.get('author') == st.session_state.username:
+            with st.container(border=True):
+                st.write(f"👤 **{p.get('author')}**")
+                if p.get('img'): st.image(p['img'], use_container_width=True)
+                st.write(p.get('text', ''))
+                if st.button(f"✨ {p.get('likes', 0)}", key=f"lk_feed_{pid}"):
+                    requests.patch(f"{DB_URL}posts/{pid}.json", json={"likes": p.get('likes', 0) + 1})
+                    st.rerun()
+
 # --- АНКЕТА ---
 elif st.session_state.page == "settings":
-    st.title("📝 Редактирование анкеты")
+    st.title("🛰️ Ваше Личное Дело")
     with st.container(border=True):
         i = my_data.get('info', {})
-        fn = st.text_input("Имя", value=i.get('f_name', ''))
-        ln = st.text_input("Фамилия", value=i.get('l_name', ''))
-        bd = st.text_input("ДР", value=i.get('bday', ''))
-        ct = st.text_input("Город", value=i.get('city', ''))
-        rl = st.selectbox("СП", ["Свободен", "В отношениях", "Сложно"], index=0)
-        em = st.text_input("E-mail", value=i.get('email', ''))
-        it = st.text_area("Интересы", value=i.get('interests', ''))
+        new_fn = st.text_input("Имя", value=i.get('f_name', ''))
+        new_ln = st.text_input("Фамилия", value=i.get('l_name', ''))
+        new_bd = st.text_input("Дата рождения", value=i.get('bday', ''))
+        new_ct = st.text_input("Город", value=i.get('city', ''))
+        new_rl = st.selectbox("Семейное положение", ["Свободен", "В отношениях", "Сложно"], index=0)
+        new_em = st.text_input("Почта", value=i.get('email', ''))
+        new_it = st.text_area("Интересы", value=i.get('interests', ''))
         st.write("---")
-        # ИСПРАВЛЕНО: переменная переименована из st в status_val
-        status_val = st.text_input("Статус", value=my_data.get('status', ''))
-        av_val = st.text_input("Ссылка на аватар", value=my_data.get('avatar', ''))
+        new_stat = st.text_input("Статус", value=my_data.get('status', ''))
+        new_ava = st.text_input("URL аватара", value=my_data.get('avatar', ''))
         
-        if st.button("Сохранить"):
-            payload = {
-                "info": {"f_name": fn, "l_name": ln, "bday": bd, "city": ct, "status_rel": rl, "email": em, "interests": it},
-                "status": status_val, "avatar": av_val
-            }
-            requests.patch(f"{DB_URL}users/{st.session_state.username}.json", json=payload)
-            st.success("Данные обновлены!")
+        if st.button("Синхронизировать данные"):
+            requests.patch(f"{DB_URL}users/{st.session_state.username}.json", json={
+                "info": {"f_name": new_fn, "l_name": new_ln, "bday": new_bd, "city": new_ct, "status_rel": new_rl, "email": new_em, "interests": new_it},
+                "status": new_stat, "avatar": new_ava
+            })
+            st.success("Данные успешно отправлены на орбиту!")
