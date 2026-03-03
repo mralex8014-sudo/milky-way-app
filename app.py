@@ -6,17 +6,15 @@ import hashlib
 # Настройка страницы
 st.set_page_config(page_title="Млечный Путь: Соцсеть", page_icon="🚀")
 
-# Ссылки на базу (разделяем посты и пользователей)
+# Ссылки на базу
 URL_POSTS = "https://milky-way-8ea60-default-rtdb.firebaseio.com/posts.json"
 URL_USERS = "https://milky-way-8ea60-default-rtdb.firebaseio.com/users.json"
 
-# Функция для шифрования пароля (чтобы не хранить их открыто)
 def hash_pass(password):
     return hashlib.sha256(str.encode(password)).hexdigest()
 
 st.title("🌌 Млечный Путь: Соцсеть")
 
-# --- СИСТЕМА ВХОДА ---
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 
@@ -25,18 +23,21 @@ if not st.session_state.logged_in:
     choice = st.sidebar.selectbox("Меню", menu)
     
     username = st.sidebar.text_input("Имя пользователя")
-    password = st.sidebar.password_input("Пароль")
+    # ВОТ ТУТ ИСПРАВЛЕНО:
+    password = st.sidebar.text_input("Пароль", type="password")
     
     if choice == "Регистрация":
         if st.sidebar.button("Создать аккаунт"):
-            # Проверяем, существует ли пользователь
-            res = requests.get(f"https://milky-way-8ea60-default-rtdb.firebaseio.com/users/{username}.json")
-            if res.json():
-                st.error("Это имя уже занято!")
+            if username and password:
+                res = requests.get(f"https://milky-way-8ea60-default-rtdb.firebaseio.com/users/{username}.json")
+                if res.json():
+                    st.error("Это имя уже занято!")
+                else:
+                    user_data = {"password": hash_pass(password)}
+                    requests.put(f"https://milky-way-8ea60-default-rtdb.firebaseio.com/users/{username}.json", json=user_data)
+                    st.success("Аккаунт создан! Теперь войдите.")
             else:
-                user_data = {"password": hash_pass(password)}
-                requests.put(f"https://milky-way-8ea60-default-rtdb.firebaseio.com/users/{username}.json", json=user_data)
-                st.success("Аккаунт создан! Теперь войдите.")
+                st.warning("Заполните все поля")
                 
     else: # Вход
         if st.sidebar.button("Войти"):
@@ -48,16 +49,15 @@ if not st.session_state.logged_in:
                 st.rerun()
             else:
                 st.error("Неверное имя или пароль")
-    st.info("Пожалуйста, войдите, чтобы читать ленту и писать сообщения.")
-    st.stop() # Останавливаем код, пока человек не войдет
+    st.info("Пожалуйста, войдите, чтобы пользоваться соцсетью.")
+    st.stop()
 
-# --- ИНТЕРФЕЙС ДЛЯ АВТОРИЗОВАННЫХ ---
+# Интерфейс после входа
 st.sidebar.success(f"Вы вошли как: {st.session_state.username}")
 if st.sidebar.button("Выйти"):
     st.session_state.logged_in = False
     st.rerun()
 
-# Вкладки: Лента и Личные сообщения
 tab1, tab2 = st.tabs(["🌎 Общая лента", "✉️ Личные сообщения"])
 
 with tab1:
@@ -69,7 +69,6 @@ with tab1:
                 requests.post(URL_POSTS, json=new_post)
                 st.rerun()
 
-    # Показ постов
     res = requests.get(URL_POSTS).json()
     if res:
         for p_id in reversed(list(res.keys())):
@@ -79,6 +78,5 @@ with tab1:
             st.divider()
 
 with tab2:
-    st.subheader("Ваши переписки")
-    # Здесь мы позже добавим выбор друга и чат
-    st.write("Раздел в разработке... Скоро здесь можно будет выбрать друга!")
+    st.subheader("Личные сообщения")
+    st.write("Раздел в разработке... Наладим регистрацию и сразу запустим чаты!")
