@@ -33,7 +33,6 @@ st.markdown(f"""<style>
 
 # --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
 def safe_image(url, w=None):
-    """Безопасная отрисовка фото для предотвращения MediaFileStorageError"""
     valid_url = url if (url and isinstance(url, str) and len(url) > 5) else DEFAULT_AVA
     try:
         if w == 'stretch': st.image(valid_url, width='stretch')
@@ -49,12 +48,12 @@ if not st.session_state.logged_in:
     c1, _ = st.columns([1, 2])
     with c1:
         with st.container(border=True):
-            u = st.text_input("Позывной")
-            p = st.text_input("Код", type="password")
+            u_login = st.text_input("Позывной")
+            p_login = st.text_input("Код", type="password")
             if st.button("Войти"):
-                res = requests.get(f"{DB_URL}users/{u}.json").json()
-                if res and res.get('password') == hash_pass(p):
-                    st.session_state.logged_in, st.session_state.username = True, u
+                res = requests.get(f"{DB_URL}users/{u_login}.json").json()
+                if res and res.get('password') == hash_pass(p_login):
+                    st.session_state.logged_in, st.session_state.username = True, u_login
                     st.rerun()
     st.stop()
 
@@ -79,34 +78,30 @@ with st.sidebar:
 # --- СТРАНИЦА ПРОФИЛЯ ---
 if st.session_state.page == "my_profile" or st.session_state.viewing_profile:
     target = st.session_state.viewing_profile or st.session_state.username
-    u = all_users.get(target, {})
-    info = u.get('info', {})
+    u_prof = all_users.get(target, {})
+    info = u_prof.get('info', {})
     
     with st.container(border=True):
         c1, c2 = st.columns([1, 3])
-        with c1: safe_image(u.get('avatar'), w='stretch')
+        with c1: safe_image(u_prof.get('avatar'), w='stretch')
         with c2:
             now_time = datetime.now().strftime("%H:%M")
-            is_online = u.get('last_seen') == now_time
-            st.markdown(f"### {info.get('f_name', target)} {'<span style='color:green; font-size:10px;'>● online</span>' if is_online else f'<span style='color:gray; font-size:10px;'>был в {u.get('last_seen', '---')}</span>'}", unsafe_allow_html=True)
-            st.caption(f"📢 {u.get('status', 'Статус не задан')}")
+            is_online = u_prof.get('last_seen') == now_time
+            # ИСПРАВЛЕНО: Кавычки внутри f-строки
+            online_html = f'<span style="color:green; font-size:10px;">● online</span>' if is_online else f'<span style="color:gray; font-size:10px;">был в {u_prof.get("last_seen", "---")}</span>'
+            st.markdown(f"### {info.get('f_name', target)} {online_html}", unsafe_allow_html=True)
+            st.caption(f"📢 {u_prof.get('status', 'Статус не задан')}")
             
-            # Анкета (Компактно)
-            st.markdown(f"""
-            **Город:** {info.get('city', '---')} | **ДР:** {info.get('bday', '---')} | **СП:** {info.get('status_rel', '---')}
-            
-            **Интересы:** {info.get('interests', 'Исследование пустоты...')}
-            """)
+            st.markdown(f"**Город:** {info.get('city', '---')} | **ДР:** {info.get('bday', '---')} | **СП:** {info.get('status_rel', '---')}")
+            st.write(f"🧩 **Интересы:** {info.get('interests', 'Исследование пустоты...')}")
             
             if target != st.session_state.username:
                 if st.button("✉️ Написать сигнал"):
                     st.session_state.page = "dm"; st.session_state.chat_with = target; st.rerun()
 
-    # Списки (Друзья и Подписчики)
-    my_ing = my_data.get('following', []) or []
-    t_ing = u.get('following', []) or []
-    t_ers = u.get('followers', []) or []
-    
+    # Списки Друзей
+    t_ing = u_prof.get('following', []) or []
+    t_ers = u_prof.get('followers', []) or []
     friends = [name for name in t_ing if name in t_ers]
     only_subs = [name for name in t_ers if name not in t_ing]
 
@@ -119,17 +114,16 @@ if st.session_state.page == "my_profile" or st.session_state.viewing_profile:
         for s in only_subs:
             if st.button(f"👽 {s}", key=f"s_list_{s}"): st.session_state.viewing_profile = s; st.rerun()
     with tab3:
-        posts = requests.get(f"{DB_URL}posts.json").json() or {}
-        imgs = [p['img'] for p in posts.values() if p.get('author') == target and p.get('img') and len(p['img']) > 5]
+        posts_all = requests.get(f"{DB_URL}posts.json").json() or {}
+        imgs = [p['img'] for p in posts_all.values() if p.get('author') == target and p.get('img') and len(p['img']) > 5]
         if imgs: st.image(imgs[:6], width=100)
         else: st.caption("Нет сохраненных снимков")
 
-    # Стена
     st.markdown("---")
     st.subheader("📝 Стена")
     with st.container(border=True):
-        t_wall = st.text_area("Написать...", height=60, label_visibility="collapsed")
-        if st.button("Опубликовать на стене"):
+        t_wall = st.text_area("Написать...", height=60, key="wall_input")
+        if st.button("Опубликовать"):
             requests.post(f"{DB_URL}posts.json", json={
                 "author": target, "creator": st.session_state.username, 
                 "text": t_wall, "time": now_time, "likes": 0
@@ -142,7 +136,6 @@ if st.session_state.page == "my_profile" or st.session_state.viewing_profile:
             with st.container(border=True):
                 st.write(f"**{p['creator']}** <small>{p['time']}</small>", unsafe_allow_html=True)
                 st.write(p['text'])
-                # Комментарии
                 with st.expander(f"💬 {len(p.get('comments', {}))}"):
                     for cid, c in p.get('comments', {}).items():
                         st.write(f"**{c['user']}**: {c['txt']}")
@@ -164,13 +157,14 @@ elif st.session_state.page == "settings":
         em = st.text_input("E-mail", value=i.get('email', ''))
         it = st.text_area("Интересы", value=i.get('interests', ''))
         st.write("---")
-        st = st.text_input("Статус", value=my_data.get('status', ''))
-        av = st.text_input("Ссылка на аватар", value=my_data.get('avatar', ''))
+        # ИСПРАВЛЕНО: переменная переименована из st в status_val
+        status_val = st.text_input("Статус", value=my_data.get('status', ''))
+        av_val = st.text_input("Ссылка на аватар", value=my_data.get('avatar', ''))
         
         if st.button("Сохранить"):
             payload = {
                 "info": {"f_name": fn, "l_name": ln, "bday": bd, "city": ct, "status_rel": rl, "email": em, "interests": it},
-                "status": st, "avatar": av
+                "status": status_val, "avatar": av_val
             }
             requests.patch(f"{DB_URL}users/{st.session_state.username}.json", json=payload)
             st.success("Данные обновлены!")
